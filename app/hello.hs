@@ -2,6 +2,8 @@
 
 module Main where
 
+import           Hello
+
 import           Data.Foldable
 import           System.Environment
 
@@ -9,5 +11,5 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        [] -> putStrLn "hello world"
-        _  -> for_ args $ \name -> putStrLn ("hello " ++ name)
+        [] -> sayHello "world"
+        _  -> for_ args sayHello
