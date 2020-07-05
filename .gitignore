@@ -1,3 +1,4 @@
 *.hi
 /TAGS
 /output/
+/_build/
