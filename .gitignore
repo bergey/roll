@@ -2,3 +2,5 @@
 /TAGS
 /output/
 /_build/
+/dist-newstyle/
+/roll.cabal
