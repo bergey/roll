@@ -4,7 +4,11 @@ import           Development.Shake
 import           Development.Shake.Command
 import           Development.Shake.FilePath
 import           Development.Shake.Util
+import           DynFlags
+import           GHC
+import           GHC.Paths                  (libdir)
 
+import           Data.Functor
 import           System.Directory
 
 main :: IO ()
@@ -17,4 +21,19 @@ main = shakeArgs shakeOptions{shakeFiles="_build"} $ do
 
     "_build/hello" <.> exe %> \out -> do
         liftIO $ createDirectoryIfMissing True "_build/objects"
-        cmd_ "ghc -outputdir _build/objects -isrc app/hello.hs -o" [out]
+        need [ "app/roll.hs" ] -- TODO better dependency
+        need [ "app/hello.hs", "src/Hello.hs" ]
+
+        -- TODO how does shake handle Exceptions?
+        -- defaultErrorHandler defaultLogAction $ do
+        liftIO $ runGhc (Just libdir) $ do
+            dflags <- getSessionDynFlags
+            setSessionDynFlags dflags
+                { importPaths = "src" : importPaths dflags
+                , objectDir = Just "_build/objects"
+                , hiDir = Just "_build/objects"
+                , outputFile = Just out
+                }
+            target <- guessTarget "app/hello.hs" Nothing
+            setTargets [target]
+            void $ load LoadAllTargets
