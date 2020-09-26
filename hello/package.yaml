@@ -1,0 +1,18 @@
+name: hello-world
+version: 0.1
+synopsis: trivial example package to build
+    
+library:
+    source-dirs: [src]
+    ghc-options: "-O2"
+
+executables:
+  hello:
+    main: Main.hs
+    source-dirs:
+      - ./.
+    dependencies:
+     - hello-world
+
+dependencies:
+  - base

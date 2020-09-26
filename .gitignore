@@ -4,3 +4,5 @@
 /_build/
 /dist-newstyle/
 /roll.cabal
+/.stack-work
+\#*#

@@ -22,18 +22,18 @@ main = shakeArgs shakeOptions{shakeFiles="_build"} $ do
     "_build/hello" <.> exe %> \out -> do
         liftIO $ createDirectoryIfMissing True "_build/objects"
         need [ "app/roll.hs" ] -- TODO better dependency
-        need [ "app/hello.hs", "src/Hello.hs" ]
+        need [ "hello/Main.hs", "hello/src/Hello/Lib.hs" ]
 
         -- TODO how does shake handle Exceptions?
         -- defaultErrorHandler defaultLogAction $ do
         liftIO $ runGhc (Just libdir) $ do
             dflags <- getSessionDynFlags
             setSessionDynFlags dflags
-                { importPaths = "src" : importPaths dflags
+                { importPaths = "hello/src" : importPaths dflags
                 , objectDir = Just "_build/objects"
                 , hiDir = Just "_build/objects"
                 , outputFile = Just out
                 }
-            target <- guessTarget "app/hello.hs" Nothing
+            target <- guessTarget "hello/Main.hs" Nothing
             setTargets [target]
             void $ load LoadAllTargets

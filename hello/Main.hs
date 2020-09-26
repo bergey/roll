@@ -2,7 +2,7 @@
 
 module Main where
 
-import           Hello
+import           Hello.Lib
 
 import           Data.Foldable
 import           System.Environment
