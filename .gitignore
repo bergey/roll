@@ -1,7 +1,7 @@
 *.hi
 /TAGS
 /output/
-/_build/
+.roll
 /dist-newstyle/
 /roll.cabal
 /.stack-work

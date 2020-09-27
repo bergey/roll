@@ -25,3 +25,4 @@ executables:
 dependencies:
   - base >= 4.14.0.0
   - shake
+  - ghc
