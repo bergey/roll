@@ -17,6 +17,7 @@ executables:
     source-dirs:
       - app
     dependencies:
+      - roll
       - directory
       - ghc
       - ghc-paths
@@ -24,5 +25,12 @@ executables:
       
 dependencies:
   - base >= 4.14.0.0
-  - shake
+  - Cabal
+  - binary
+  - deepseq
   - ghc
+  - hashable
+  - shake
+  - text
+  - exceptions
+  - containers
