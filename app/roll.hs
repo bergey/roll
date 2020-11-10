@@ -76,6 +76,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
           { objectDir = Just objectDir
           , hiDir = Just hiDir
           , outputFile = Nothing
+          , importPaths = hsSourceDirs (libBuildInfo library)
           }
         setTargets =<< for (exposedModules library) \m -> guessTarget (prettyShow m) Nothing
         void $ load LoadAllTargets
