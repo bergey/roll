@@ -14,6 +14,7 @@ import Control.Monad
 import Data.Binary
 import Data.Foldable
 import Data.Hashable
+import Data.List (isSuffixOf)
 import Data.Maybe
 import Data.Traversable
 import Development.Shake as Shake
@@ -31,6 +32,7 @@ import GHC.Paths (libdir)
 import Roll.Cabal
 import Roll.Orphans
 import System.Console.GetOpt as GetOpt
+import System.Directory (listDirectory)
 
 import Data.Functor
 import System.Directory
@@ -76,7 +78,9 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
           { objectDir = Just objectDir
           , hiDir = Just hiDir
           , outputFile = Nothing
-          , importPaths = hsSourceDirs (libBuildInfo library)
+          , importPaths = case hsSourceDirs (libBuildInfo library) of
+              [] -> importPaths dflags -- no change
+              srcs -> srcs
           }
         setTargets =<< for (exposedModules library) \m -> guessTarget (prettyShow m) Nothing
         void $ load LoadAllTargets
@@ -84,7 +88,10 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
 
     phony "all" do
       liftIO $ createDirectoryIfMissing True ".roll/bin"
-      traverse_ (buildPackage . BuildPackage) targets
+      cabals <- if null targets
+                then liftIO (listDirectory "." <&> filter (".cabal" `isSuffixOf`))
+                else return targets
+      traverse_ (buildPackage . BuildPackage) cabals
 
 
 rollOptions :: [OptDescr (Either String Options)]
