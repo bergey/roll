@@ -24,6 +24,7 @@ import Development.Shake.Util
 import Distribution.PackageDescription
 import Distribution.Pretty (prettyShow)
 import Distribution.Types.PackageId (PackageIdentifier(..))
+import Distribution.Types.UnqualComponentName
 import Distribution.Verbosity as Cabal
 import DynFlags
 import GHC
@@ -52,12 +53,11 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
 
     buildPackage <- newCache \(BuildPackage cabalFile) -> do
       PackageDescription{..} <- parseCabal cabalFile
-      for_ library \lib->
-        askOracle (BuildComponent package lib)
+      for_ library \lib-> askOracle (BuildComponent package lib)
+      for_ testSuites \t -> askOracle (BuildComponent package t)
       -- TODO replace below with implementations
       unless (null subLibraries) (liftIO . throwIO . NotImplemented $ "sub-libraries in " <> cabalFile)
       unless (null executables) (liftIO . throwIO . NotImplemented $ "executables in " <> cabalFile)
-      unless (null testSuites) (putWarn ("test suites not implemented: " <> cabalFile))
       unless (null benchmarks) (putWarn ("benchmarks not implemented: " <> cabalFile))
       unless (null foreignLibs) (putWarn ("foreign libraries not implemented: " <> cabalFile))
 
@@ -71,6 +71,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       liftIO $ createDirectoryIfMissing True hiDir
       -- TODO how does shake handle Exceptions?
       -- defaultErrorHandler defaultLogAction $ do
+      -- TODO need hsSourceDirs
       liftIO $ runGhc (Just libdir) $ do
         dflags <- getSessionDynFlags
         setSessionDynFlags dflags
@@ -86,9 +87,37 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
         void $ load LoadAllTargets
       return ()
 
+    _buildTestSuite <- addOracleCache \(BuildComponent packageId testSuite) -> do
+      let -- TODO tmp folders, copy iff build succeeds
+        objectDir = ".roll/objects" </> prettyShow packageId
+        hiDir = ".roll/interfaces" </> prettyShow packageId
+        binDir = ".roll/bin"
+      liftIO $ createDirectoryIfMissing True objectDir
+      liftIO $ createDirectoryIfMissing True hiDir
+      liftIO $ createDirectoryIfMissing True binDir
+      -- TODO need hsSourceDirs
+      let e_target = case testInterface testSuite of
+            TestSuiteExeV10 _ path -> Right path
+            TestSuiteLibV09 _ moduleName -> Right (prettyShow moduleName)
+            unknown -> Left (show unknown)
+      case e_target of
+        Left unknown -> putWarn ("unsupported test suite type: " <> show unknown)
+        Right testMain -> liftIO $ runGhc (Just libdir) $ do
+          dflags <- getSessionDynFlags
+          setSessionDynFlags dflags
+            { objectDir = Just objectDir
+            , hiDir = Just hiDir
+            , outputFile = Just (unUnqualComponentName (testName testSuite))
+            , importPaths = case hsSourceDirs (testBuildInfo testSuite) of
+                [] -> importPaths dflags -- no change
+                srcs -> srcs
+            }
+          setTargets . (:[]) =<< guessTarget testMain Nothing
+          void $ load LoadAllTargets
+      return ()
+
     phony "all" do
-      liftIO $ createDirectoryIfMissing True ".roll/bin"
-      cabals <- if null targets
+      cabals <- if null targets -- TODO recursive search?  Targets from project file?
                 then liftIO (listDirectory "." <&> filter (".cabal" `isSuffixOf`))
                 else return targets
       traverse_ (buildPackage . BuildPackage) cabals
@@ -120,3 +149,4 @@ data BuildComponent c = BuildComponent PackageIdentifier c
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable, Binary, NFData)
 type instance RuleResult (BuildComponent Library) = ()
+type instance RuleResult (BuildComponent TestSuite) = ()

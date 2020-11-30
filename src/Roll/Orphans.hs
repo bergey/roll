@@ -35,6 +35,9 @@ deriving instance Hashable KnownExtension
 deriving instance Hashable Language
 deriving instance Hashable LegacyExeDependency
 deriving instance Hashable Library
+deriving instance Hashable TestSuite
+deriving instance Hashable TestSuiteInterface
+deriving instance Hashable TestType
 deriving instance Hashable LibraryName
 deriving instance Hashable LibraryVisibility
 deriving instance Hashable Mixin

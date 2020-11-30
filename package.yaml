@@ -19,7 +19,6 @@ executables:
     dependencies:
       - roll
       - directory
-      - ghc
       - ghc-paths
       - shake
       
