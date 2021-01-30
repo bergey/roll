@@ -74,7 +74,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
         then T.readFile "package-versions.txt"
            <&> T.lines
            <&> map (T.breakOn " ==") -- TODO handle installed
-           <&> map (\(n, v) -> (mkPackageName (T.unpack n), Version v))
+           <&> map (\(n, v) -> (mkPackageName (T.unpack n), Version (T.drop 3 v)))
            <&> Map.fromList
         else return mempty
 
@@ -95,8 +95,9 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
 
     buildPackage <- newCache \(BuildPackage cabalFile) -> do
       PackageDescription{..} <- parseCabal cabalFile
-      for_ library \lib -> askOracle (BuildComponent package lib)
-      for_ testSuites \t -> askOracle (BuildComponent package t)
+      let pkgDir = takeDirectory cabalFile
+      for_ library \lib -> askOracle (BuildComponent package pkgDir lib)
+      for_ testSuites \t -> askOracle (BuildComponent package pkgDir t)
       -- TODO replace below with implementations
       unless (null subLibraries) (throwM . NotImplemented $ "sub-libraries in " <> cabalFile)
       unless (null executables) (throwM . NotImplemented $ "executables in " <> cabalFile)
@@ -119,7 +120,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
 
     -- TODO need separate oracles per component type (or sum type),
     -- but most of this action should be reusable
-    _buildLibrary <- addOracleCache \(BuildComponent packageId library) -> do
+    _buildLibrary <- addOracleCache \(BuildComponent packageId dir library) -> do
       void $ buildDependencies (targetBuildDepends (libBuildInfo library))
       let
         objectDir = ".roll/objects" </> prettyShow packageId
@@ -129,22 +130,23 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       -- TODO how does shake handle Exceptions?
       -- defaultErrorHandler defaultLogAction $ do
       -- TODO need hsSourceDirs
+      putInfo $ "dir=" <> dir <> " hsSourceDirs=" <> show (hsSourceDirs (libBuildInfo library)) <> " exposedModules=" <> show (exposedModules library)
       liftIO $ runGhc (Just libdir) $ do
         dflags <- getSessionDynFlags
         setSessionDynFlags dflags
           -- TODO tmp folders, copy iff build succeeds
-          { objectDir = Just objectDir
-          , hiDir = Just hiDir
+          { objectDir = Just (dir </> objectDir)
+          , hiDir = Just (dir </> hiDir)
           , outputFile = Nothing
           , importPaths = case hsSourceDirs (libBuildInfo library) of
-              [] -> importPaths dflags -- no change
-              srcs -> srcs
+              [] -> [dir] -- package dir is root of module path
+              srcs -> map (dir </>) srcs
           }
         setTargets =<< for (exposedModules library) \m -> guessTarget (prettyShow m) Nothing
         void $ load LoadAllTargets
       return ()
 
-    _buildTestSuite <- addOracleCache \(BuildComponent packageId testSuite) -> do
+    _buildTestSuite <- addOracleCache \(BuildComponent packageId dir testSuite) -> do
       void $ buildDependencies (targetBuildDepends (testBuildInfo testSuite))
       let -- TODO tmp folders, copy iff build succeeds
         objectDir = ".roll/objects" </> prettyShow packageId
@@ -163,8 +165,8 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
         Right testMain -> liftIO $ runGhc (Just libdir) $ do
           dflags <- getSessionDynFlags
           setSessionDynFlags dflags
-            { objectDir = Just objectDir
-            , hiDir = Just hiDir
+            { objectDir = Just (dir </> objectDir)
+            , hiDir = Just (dir </> hiDir)
             , outputFile = Just (unUnqualComponentName (testName testSuite))
             , importPaths = case hsSourceDirs (testBuildInfo testSuite) of
                 [] -> importPaths dflags -- no change
@@ -203,7 +205,11 @@ newtype BuildPackage = BuildPackage FilePath
   deriving stock (Show, Eq, Generic)
   deriving newtype Hashable
 
-data BuildComponent c = BuildComponent PackageIdentifier c
+data BuildComponent c = BuildComponent
+  { package ::PackageIdentifier
+  , directory :: FilePath
+  , component :: c
+  }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable, Binary, NFData)
 type instance RuleResult (BuildComponent Library) = ()
@@ -218,7 +224,9 @@ throwM = liftIO . throwIO
 
 builtinPackages :: Set.Set PackageName
 builtinPackages = Set.fromList . map mkPackageName $
-  [ "binary"
+  [ "array"
+  , "base"
+  , "binary"
   , "bytestring"
   , "Cabal"
   , "containers"
