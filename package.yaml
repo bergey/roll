@@ -18,19 +18,23 @@ executables:
       - app
     dependencies:
       - roll
-      - directory
-      - ghc-paths
-      - shake
       
 dependencies:
-  - base >= 4.14.0.0
   - Cabal
+  - base >= 4.14.0.0
   - binary
+  - containers
   - deepseq
+  - directory
+  - directory
+  - exceptions
   - ghc
+  - ghc-paths
   - hashable
   - shake
   - text
-  - exceptions
-  - containers
-  - directory
+  - unix
+  - unordered-containers
+
+default-extensions:
+  OverloadedStrings

@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -8,6 +11,16 @@
 {-# LANGUAGE BlockArguments #-}
 module Main where
 
+import qualified Data.Set as Set
+import Control.Monad.IO.Class
+import Data.Function ((&))
+import qualified System.Directory as Sys
+import qualified Data.Map as Map
+import Data.Hashable
+import qualified Data.HashMap.Strict as HM
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
@@ -25,6 +38,8 @@ import Distribution.PackageDescription
 import Distribution.Pretty (prettyShow)
 import Distribution.Types.PackageId (PackageIdentifier(..))
 import Distribution.Types.UnqualComponentName
+import Distribution.Types.Dependency (Dependency(..))
+import Distribution.Types.PackageName (PackageName, mkPackageName, unPackageName)
 import Distribution.Verbosity as Cabal
 import DynFlags
 import GHC
@@ -36,6 +51,7 @@ import System.Console.GetOpt as GetOpt
 import System.Directory (listDirectory)
 
 import Data.Functor
+import System.Posix
 import System.Directory
 
 main :: IO ()
@@ -51,19 +67,60 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       verbosity' <- cabalVerbosity <$> getVerbosity
       liftIO $ readPackageDescription verbosity' cabalFileName
 
+    -- packageVersions :: HM.HashMap PackageName Version
+    packageVersions <- liftIO do
+      pinned <- fileExist "package-versions.txt"
+      if pinned
+        then T.readFile "package-versions.txt"
+           <&> T.lines
+           <&> map (T.breakOn " ==") -- TODO handle installed
+           <&> map (\(n, v) -> (mkPackageName (T.unpack n), Version v))
+           <&> Map.fromList
+        else return mempty
+
+    fetchPackage <- newCache \(name, Version v) -> do
+      let package = unPackageName name <> "-" <> T.unpack v
+      exists <- liftIO $ Sys.doesDirectoryExist package
+      -- someday, in-process, don't depend on other build tools
+      unless exists (command_ [] "stack" [ "unpack", package ])
+      return package -- path to directory where we unpacked
+
+    let findCabal dir = do
+          -- TODO generalize to include package.yaml
+          cabals <- getDirectoryFiles "" [ dir <> "/*.cabal" ]
+          case cabals of
+            [] -> throwM $ MissingCabal dir
+            [ one ] -> return one
+            _more -> throwM $ MultipleCabal dir
+
     buildPackage <- newCache \(BuildPackage cabalFile) -> do
       PackageDescription{..} <- parseCabal cabalFile
-      for_ library \lib-> askOracle (BuildComponent package lib)
+      for_ library \lib -> askOracle (BuildComponent package lib)
       for_ testSuites \t -> askOracle (BuildComponent package t)
       -- TODO replace below with implementations
-      unless (null subLibraries) (liftIO . throwIO . NotImplemented $ "sub-libraries in " <> cabalFile)
-      unless (null executables) (liftIO . throwIO . NotImplemented $ "executables in " <> cabalFile)
+      unless (null subLibraries) (throwM . NotImplemented $ "sub-libraries in " <> cabalFile)
+      unless (null executables) (throwM . NotImplemented $ "executables in " <> cabalFile)
       unless (null benchmarks) (putWarn ("benchmarks not implemented: " <> cabalFile))
       unless (null foreignLibs) (putWarn ("foreign libraries not implemented: " <> cabalFile))
+
+    let
+      buildDependencies :: [Dependency] -> Action ()
+      buildDependencies deps = do
+        void $ forP deps \(Dependency pkgName _ _) -> unless (pkgName `Set.member` builtinPackages) do
+          -- fetch & build dependencies
+          version <- Map.lookup pkgName packageVersions
+                    & \case
+                        Just v -> return v
+                        -- TODO local packages
+                        Nothing -> throwM (NoPinnedVersion pkgName)
+          path <- fetchPackage (pkgName, version)
+          cabal <- findCabal path
+          buildPackage (BuildPackage cabal) -- TODO library only
 
     -- TODO need separate oracles per component type (or sum type),
     -- but most of this action should be reusable
     _buildLibrary <- addOracleCache \(BuildComponent packageId library) -> do
+      void $ buildDependencies (targetBuildDepends (libBuildInfo library))
       let
         objectDir = ".roll/objects" </> prettyShow packageId
         hiDir = ".roll/interfaces" </> prettyShow packageId
@@ -88,6 +145,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       return ()
 
     _buildTestSuite <- addOracleCache \(BuildComponent packageId testSuite) -> do
+      void $ buildDependencies (targetBuildDepends (testBuildInfo testSuite))
       let -- TODO tmp folders, copy iff build succeeds
         objectDir = ".roll/objects" </> prettyShow packageId
         hiDir = ".roll/interfaces" </> prettyShow packageId
@@ -150,3 +208,36 @@ data BuildComponent c = BuildComponent PackageIdentifier c
   deriving anyclass (Hashable, Binary, NFData)
 type instance RuleResult (BuildComponent Library) = ()
 type instance RuleResult (BuildComponent TestSuite) = ()
+
+newtype Version = Version Text
+  deriving stock (Show)
+  deriving newtype (Eq, Ord, Hashable)
+
+throwM :: (Exception e, MonadIO m) => e -> m a
+throwM = liftIO . throwIO
+
+builtinPackages :: Set.Set PackageName
+builtinPackages = Set.fromList . map mkPackageName $
+  [ "binary"
+  , "bytestring"
+  , "Cabal"
+  , "containers"
+  , "deepseq"
+  , "directory"
+  , "filepath"
+  , "ghc-compact"
+  , "ghc-prim"
+  , "integer-gmp"
+  , "mtl"
+  , "parsec"
+  , "pretty"
+  , "process"
+  , "stm"
+  , "template-haskell"
+  , "terminfo"
+  , "text"
+  , "time"
+  , "transformers"
+  , "unix"
+  , "xhtml"
+  ]

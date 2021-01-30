@@ -7,6 +7,7 @@
 
 module Roll.Cabal where
 
+import Distribution.Types.PackageName (PackageName)
 import Control.Exception
 import Control.Monad.Catch
 import Data.Functor ((<&>))
@@ -24,6 +25,12 @@ import Distribution.Verbosity
 import qualified Data.Text as T
 
 data NotImplemented = NotImplemented String
+  deriving (Show, Exception)
+
+data CabalException = MissingCabal String | MultipleCabal String
+  deriving (Show, Exception)
+
+data NoPinnedVersion = NoPinnedVersion PackageName
   deriving (Show, Exception)
 
 readPackageDescription :: Verbosity -> FilePath -> IO PackageDescription
@@ -49,7 +56,7 @@ resolveCondTree = simplifyCondTree confVars
 -- TODO load this from the library somehow
 -- | The version of ghc package used
 ghcVersion :: Version
-ghcVersion = mkVersion [8, 10, 1]
+ghcVersion = mkVersion [8, 10, 3]
 
 confVars :: ConfVar -> Either ConfVar Bool
 confVars var = case var of
