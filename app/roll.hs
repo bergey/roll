@@ -122,26 +122,28 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
     -- but most of this action should be reusable
     _buildLibrary <- addOracleCache \(BuildComponent packageId dir library) -> do
       void $ buildDependencies (targetBuildDepends (libBuildInfo library))
-      let
+      let -- TODO tmp folders, copy iff build succeeds
         objectDir = ".roll/objects" </> prettyShow packageId
         hiDir = ".roll/interfaces" </> prettyShow packageId
       liftIO $ createDirectoryIfMissing True objectDir
       liftIO $ createDirectoryIfMissing True hiDir
+      let buildInfo = libBuildInfo library
       -- TODO how does shake handle Exceptions?
       -- defaultErrorHandler defaultLogAction $ do
       -- TODO need hsSourceDirs
       putInfo $ "dir=" <> dir <> " hsSourceDirs=" <> show (hsSourceDirs (libBuildInfo library)) <> " exposedModules=" <> show (exposedModules library)
       liftIO $ runGhc (Just libdir) $ do
         dflags <- getSessionDynFlags
-        setSessionDynFlags dflags
-          -- TODO tmp folders, copy iff build succeeds
-          { objectDir = Just (dir </> objectDir)
-          , hiDir = Just (dir </> hiDir)
-          , outputFile = Nothing
-          , importPaths = case hsSourceDirs (libBuildInfo library) of
-              [] -> [dir] -- package dir is root of module path
-              srcs -> map (dir </>) srcs
-          }
+        let packageDynFlags =
+              (foldr applyExtension dflags (defaultExtensions buildInfo ++ oldExtensions buildInfo))
+              { objectDir = Just (dir </> objectDir)
+              , hiDir = Just (dir </> hiDir)
+              , outputFile = Nothing
+              , importPaths = case hsSourceDirs buildInfo of
+                  [] -> [dir] -- package dir is root of module path
+                  srcs -> map (dir </>) srcs
+              }
+        setSessionDynFlags packageDynFlags
         setTargets =<< for (exposedModules library) \m -> guessTarget (prettyShow m) Nothing
         void $ load LoadAllTargets
       return ()
@@ -164,6 +166,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
         Left unknown -> putWarn ("unsupported test suite type: " <> show unknown)
         Right testMain -> liftIO $ runGhc (Just libdir) $ do
           dflags <- getSessionDynFlags
+          -- todo applyExtension (or merge duplicated code)
           setSessionDynFlags dflags
             { objectDir = Just (dir </> objectDir)
             , hiDir = Just (dir </> hiDir)
