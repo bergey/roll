@@ -8,6 +8,7 @@
 
 module Roll.Cabal where
 
+import Distribution.Types.PackageId
 import DynFlags (xopt_set, xopt_unset, DynFlags)
 import qualified GHC.LanguageExtensions as GHC
 import qualified Language.Haskell.Extension as Cabal
@@ -35,6 +36,9 @@ data CabalException = MissingCabal String | MultipleCabal String
   deriving (Show, Exception)
 
 data NoPinnedVersion = NoPinnedVersion PackageName
+  deriving (Show, Exception)
+
+data NoComponent = NoComponent PackageIdentifier ComponentName
   deriving (Show, Exception)
 
 readPackageDescription :: Verbosity -> FilePath -> IO PackageDescription
