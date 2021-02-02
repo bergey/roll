@@ -59,7 +59,12 @@ import System.Directory
 
 main :: IO ()
 main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options targets -> pure $ Just $ do
-    if "clean" `elem` targets then want ["clean"] else want ["all"]
+    case targets of
+      [] -> want ["all"]
+      _
+        | "clean" `elem` targets -> want ["clean"]
+        -- TODO real target syntax
+        | otherwise -> want targets
 
     phony "clean" do
         putInfo "Cleaning files in .roll"
@@ -196,10 +201,14 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       return ()
 
     phony "all" do
-      cabals <- if null targets -- TODO recursive search?  Targets from project file?
-                then liftIO (listDirectory "." <&> filter (".cabal" `isSuffixOf`))
-                else return targets
-      traverse_  needAllComponents cabals
+      -- TODO recursive search?  Targets from project file?
+      cabals <- liftIO (listDirectory "." <&> filter (".cabal" `isSuffixOf`))
+      need cabals
+
+    phonys \cabalFile ->
+      if ".cabal" `isSuffixOf` cabalFile
+      then Just (needAllComponents cabalFile)
+      else Nothing
 
 
 rollOptions :: [OptDescr (Either String Options)]
