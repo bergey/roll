@@ -8,6 +8,8 @@
 
 module Roll.Cabal where
 
+import Distribution.Types.ForeignLib (ForeignLib(..))
+import Distribution.Types.Benchmark (Benchmark(..))
 import Distribution.Types.PackageId
 import DynFlags (xopt_set, xopt_unset, DynFlags)
 import qualified GHC.LanguageExtensions as GHC
@@ -48,14 +50,18 @@ readPackageDescription verbosity filepath =
 resolveConditionals :: GenericPackageDescription -> PackageDescription
 resolveConditionals GenericPackageDescription{..} =
   let
-    resolveComponents :: Semigroup a => (UnqualComponentName, CondTree ConfVar [Dependency] a) -> a
-    resolveComponents = snd . resolveCondTree . snd
-    library = snd . resolveCondTree <$> condLibrary
-    subLibraries = resolveComponents <$> condSubLibraries
-    executables = resolveComponents <$> condExecutables
-    testSuites = resolveComponents <$> condTestSuites
-    benchmarks = resolveComponents <$> condBenchmarks
-    foreignLibs = resolveComponents <$> condForeignLibs
+    resolveComponents :: Semigroup a => CondTree ConfVar [Dependency] a -> ([Dependency], a)
+    resolveComponents = resolveCondTree
+    library = snd . resolveComponents <$> condLibrary
+    subLibraries = [ (snd $ resolveComponents c) { libName = LSubLibName n } | (n, c) <- condSubLibraries ]
+    executables = [ (snd $ resolveComponents c) { exeName = n } | (n, c) <- condExecutables ]
+    testSuites = condTestSuites <&> \(n, c) ->
+      let
+        (deps, testSuite) = resolveComponents c
+        newBuildInfo = (testBuildInfo testSuite) { targetBuildDepends = deps }
+      in testSuite { testName = n, testBuildInfo = newBuildInfo }
+    benchmarks = [ (snd $ resolveComponents c) { benchmarkName = n } | (n, c) <- condBenchmarks ]
+    foreignLibs = [ (snd $ resolveComponents c) { foreignLibName = n } | (n, c) <- condForeignLibs ]
   in  packageDescription {library, subLibraries, executables, testSuites, benchmarks, foreignLibs}
 
 resolveCondTree :: Semigroup a => CondTree ConfVar [Dependency] a -> ([Dependency], a)
