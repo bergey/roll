@@ -142,26 +142,12 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
                 LSubLibName name -> findComponent subLibraries libName m_name pkgDesc
       let buildInfo = libBuildInfo spec
       void $ buildDependencies (targetBuildDepends buildInfo)
-      let -- TODO tmp folders, copy iff build succeeds
-        objectDir = ".roll/objects" </> prettyShow pkgId
-        hiDir = ".roll/interfaces" </> prettyShow pkgId
-      liftIO $ createDirectoryIfMissing True objectDir
-      liftIO $ createDirectoryIfMissing True hiDir
       -- TODO how does shake handle Exceptions?
       -- defaultErrorHandler defaultLogAction $ do
       -- TODO need hsSourceDirs
       liftIO $ runGhc (Just libdir) $ do
-        dflags <- getSessionDynFlags
-        let packageDynFlags =
-              (foldr applyExtension dflags (defaultExtensions buildInfo ++ oldExtensions buildInfo))
-              { objectDir = Just objectDir
-              , hiDir = Just hiDir
-              , outputFile = Nothing
-              , importPaths = case hsSourceDirs buildInfo of
-                  [] -> [srcDir] -- package dir is root of module path
-                  srcs -> map (srcDir </>) srcs
-              }
-        setSessionDynFlags packageDynFlags
+        dflags <- componentDynFlags pkgId srcDir buildInfo
+        setSessionDynFlags dflags
         setTargets =<< for (exposedModules spec) \m -> guessTarget (prettyShow m) Nothing
         void $ load LoadAllTargets
       return ()
@@ -171,13 +157,12 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       pkgDesc <- parseCabal =<< findCabal srcDir
       spec <- findComponent testSuites testName name pkgDesc
         & onNothing (throwM (NoComponent pkgId (CTestName name)))
+      let hsSourceDirs' = case hsSourceDirs (testBuildInfo spec) of
+                            [] -> [srcDir]
+                            srcs -> map (srcDir </>) srcs
+      putInfo $ "pkgId=" ++ prettyShow pkgId ++ " testName=" ++ prettyShow name ++ " srcDir=" ++ srcDir ++ " hsSourceDirs'=" ++ intercalate "," hsSourceDirs'
       void $ buildDependencies (targetBuildDepends (testBuildInfo spec))
-      let -- TODO tmp folders, copy iff build succeeds
-        objectDir = ".roll/objects" </> prettyShow pkgId
-        hiDir = ".roll/interfaces" </> prettyShow pkgId
-        binDir = ".roll/bin"
-      liftIO $ createDirectoryIfMissing True objectDir
-      liftIO $ createDirectoryIfMissing True hiDir
+      let binDir = ".roll/bin"
       liftIO $ createDirectoryIfMissing True binDir
       -- TODO need hsSourceDirs
       let e_target = case testInterface spec of
@@ -187,17 +172,16 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       case e_target of
         Left unknown -> putWarn ("unsupported test suite type: " <> show unknown)
         Right testMain -> liftIO $ runGhc (Just libdir) $ do
-          dflags <- getSessionDynFlags
-          -- todo applyExtension (or merge duplicated code)
+          dflags <- componentDynFlags pkgId srcDir (testBuildInfo spec)
           setSessionDynFlags dflags
-            { objectDir = Just objectDir
-            , hiDir = Just hiDir
-            , outputFile = Just (unUnqualComponentName (testName spec))
-            , importPaths = case hsSourceDirs (testBuildInfo spec) of
-                [] -> [srcDir]-- no change
-                srcs -> map (srcDir </>) srcs
-            }
-          setTargets . (:[]) =<< guessTarget testMain Nothing
+            { outputFile = Just (unUnqualComponentName (testName spec))}
+          target <- flip guessTarget Nothing $
+                    if ".hs" `isSuffixOf` testMain
+                    then case hsSourceDirs' of
+                      [] -> testMain
+                      (dir : _) -> dir </> testMain
+                    else testMain
+          setTargets [target]
           void $ load LoadAllTargets
       return ()
 
@@ -297,3 +281,24 @@ builtinPackages = Set.fromList . map mkPackageName $
   , "unix"
   , "xhtml"
   ]
+
+-- | Common dflags needed for most components
+componentDynFlags :: GhcMonad m => PackageIdentifier -> FilePath -> BuildInfo -> m DynFlags
+componentDynFlags pkgId srcDir buildInfo = do
+  old <- getSessionDynFlags
+  let
+    extensions = defaultExtensions buildInfo ++ oldExtensions buildInfo
+    -- TODO tmp folders, copy iff build succeeds
+    objectDir = ".roll/objects" </> prettyShow pkgId
+    hiDir = ".roll/interfaces" </> prettyShow pkgId
+  liftIO $ createDirectoryIfMissing True objectDir
+  liftIO $ createDirectoryIfMissing True hiDir
+  return $
+    (foldr applyExtension old extensions)
+      { objectDir = Just objectDir
+      , hiDir = Just hiDir
+      , outputFile = Nothing
+      , importPaths = case hsSourceDirs buildInfo of
+          [] -> [srcDir] -- package dir is root of module path
+          srcs -> map (srcDir </>) srcs
+      }
