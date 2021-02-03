@@ -12,6 +12,7 @@
 {-# LANGUAGE BlockArguments #-}
 module Main where
 
+import Data.List.Extra (dropPrefix)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Version (versionNumbers)
 import qualified Data.Set as Set
@@ -64,7 +65,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       _
         | "clean" `elem` targets -> want ["clean"]
         -- TODO real target syntax
-        | otherwise -> want targets
+        | otherwise -> want [ ".roll/targets" </> t | t <- targets ]
 
     phony "clean" do
         putInfo "Cleaning files in .roll"
@@ -206,8 +207,8 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       need cabals
 
     phonys \cabalFile ->
-      if ".cabal" `isSuffixOf` cabalFile
-      then Just (needAllComponents cabalFile)
+      if ".roll/targets//*.cabal" ?== cabalFile
+      then Just (needAllComponents (dropPrefix ".roll/targets/" cabalFile))
       else Nothing
 
 

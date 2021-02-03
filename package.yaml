@@ -36,6 +36,7 @@ dependencies:
   - unix
   - unordered-containers
   - ghc-boot
+  - extra
 
 default-extensions:
   OverloadedStrings
