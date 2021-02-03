@@ -301,4 +301,6 @@ componentDynFlags pkgId srcDir buildInfo = do
       , importPaths = case hsSourceDirs buildInfo of
           [] -> [srcDir] -- package dir is root of module path
           srcs -> map (srcDir </>) srcs
+      , includePaths = addGlobalInclude (includePaths old)
+        [ srcDir </> d | d <- includeDirs buildInfo ]
       }
