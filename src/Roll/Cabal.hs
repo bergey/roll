@@ -50,8 +50,9 @@ readPackageDescription verbosity filepath =
 resolveConditionals :: GenericPackageDescription -> PackageDescription
 resolveConditionals GenericPackageDescription{..} =
   let
+    flags = mkFlagAssignment [(flagName, flagDefault) | MkFlag{..} <- genPackageFlags ]
     resolveComponents :: Semigroup a => CondTree ConfVar [Dependency] a -> ([Dependency], a)
-    resolveComponents = resolveCondTree
+    resolveComponents = resolveCondTree flags
     library = snd . resolveComponents <$> condLibrary
     subLibraries = [ (snd $ resolveComponents c) { libName = LSubLibName n } | (n, c) <- condSubLibraries ]
     executables = [ (snd $ resolveComponents c) { exeName = n } | (n, c) <- condExecutables ]
@@ -64,21 +65,24 @@ resolveConditionals GenericPackageDescription{..} =
     foreignLibs = [ (snd $ resolveComponents c) { foreignLibName = n } | (n, c) <- condForeignLibs ]
   in  packageDescription {library, subLibraries, executables, testSuites, benchmarks, foreignLibs}
 
-resolveCondTree :: Semigroup a => CondTree ConfVar [Dependency] a -> ([Dependency], a)
-resolveCondTree = simplifyCondTree confVars
+resolveCondTree :: Semigroup a =>
+  FlagAssignment -> CondTree ConfVar [Dependency] a -> ([Dependency], a)
+resolveCondTree flags = simplifyCondTree (confVars flags)
 
 -- TODO load this from the library somehow
 -- | The version of ghc package used
 ghcVersion :: Version
 ghcVersion = mkVersion [8, 10, 3]
 
-confVars :: ConfVar -> Either ConfVar Bool
-confVars var = case var of
+confVars :: FlagAssignment -> ConfVar -> Either ConfVar Bool
+confVars flags var = case var of
   OS os -> Right (os == buildOS)
   Arch arch -> Right (arch == buildArch)
   Impl GHC versionRange -> Right (ghcVersion `withinRange` versionRange)
   Impl _ _ -> Right False
-  _ -> Left var
+  Flag name -> case lookupFlagAssignment name flags of
+    Just val -> Right val
+    Nothing -> Left var
 
 -- | update DynFlags by turning a languge extension on or off.  Used to handle
 -- default-extensions section of .cabal files.
