@@ -140,6 +140,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
               case m_name of
                 LMainLibName -> library pkgDesc
                 LSubLibName name -> findComponent subLibraries libName m_name pkgDesc
+      putVerbose (show spec)
       let buildInfo = libBuildInfo spec
       void $ buildDependencies (targetBuildDepends buildInfo)
       -- TODO how does shake handle Exceptions?
@@ -157,10 +158,10 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
       pkgDesc <- parseCabal =<< findCabal srcDir
       spec <- findComponent testSuites testName name pkgDesc
         & onNothing (throwM (NoComponent pkgId (CTestName name)))
+      putVerbose (show spec)
       let hsSourceDirs' = case hsSourceDirs (testBuildInfo spec) of
                             [] -> [srcDir]
                             srcs -> map (srcDir </>) srcs
-      putInfo $ "pkgId=" ++ prettyShow pkgId ++ " testName=" ++ prettyShow name ++ " srcDir=" ++ srcDir ++ " hsSourceDirs'=" ++ intercalate "," hsSourceDirs'
       void $ buildDependencies (targetBuildDepends (testBuildInfo spec))
       let binDir = ".roll/bin"
       liftIO $ createDirectoryIfMissing True binDir
@@ -170,7 +171,7 @@ main = shakeArgsWith shakeOptions{shakeFiles=".roll"} rollOptions $ \options tar
             TestSuiteLibV09 _ moduleName -> Right (prettyShow moduleName)
             unknown -> Left (show unknown)
       case e_target of
-        Left unknown -> putWarn ("unsupported test suite type: " <> show unknown)
+        Left unknown -> putWarn ("unsupported test suite type: " <> unknown)
         Right testMain -> liftIO $ runGhc (Just libdir) $ do
           dflags <- componentDynFlags pkgId srcDir (testBuildInfo spec)
           setSessionDynFlags dflags
